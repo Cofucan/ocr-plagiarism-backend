@@ -2,6 +2,7 @@
 API routes for plagiarism analysis.
 """
 
+import logging
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
@@ -13,6 +14,9 @@ from app.services.similarity import (
     get_decision,
     get_decision_color,
 )
+
+# Configure logging
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["Analysis"])
 
@@ -43,9 +47,22 @@ async def analyze_text(
     Returns:
         AnalysisResponse with decision, scores, and matched documents
     """
+    # === LOGGING: Incoming Request ===
+    logger.info("=" * 60)
+    logger.info("[ANALYZE] New request received")
+    logger.info(f"[ANALYZE] Student ID: {request.student_id}")
+    logger.info(f"[ANALYZE] Raw text length: {len(request.text)} chars")
+    logger.info(f"[ANALYZE] Raw text preview (first 200 chars): {request.text[:200]!r}")
+    logger.info(f"[ANALYZE] Raw text preview (last 100 chars): {request.text[-100:]!r}")
+
     # Validate that text has meaningful content after cleaning
     cleaned_text = clean_text(request.text)
     word_count = len(cleaned_text.split()) if cleaned_text else 0
+
+    # === LOGGING: After Cleaning ===
+    logger.info(f"[ANALYZE] Cleaned text length: {len(cleaned_text)} chars")
+    logger.info(f"[ANALYZE] Word count after cleaning: {word_count}")
+    logger.info(f"[ANALYZE] Cleaned text preview: {cleaned_text[:200]!r}")
 
     if word_count < 5:
         raise HTTPException(
@@ -54,12 +71,20 @@ async def analyze_text(
         )
 
     # Find top matching documents
+    logger.info("[ANALYZE] Calling find_top_matches...")
     matches = find_top_matches(request.text, db)
+    logger.info(f"[ANALYZE] Found {len(matches)} matches")
 
     # Determine highest score and decision
     highest_score = matches[0].similarity_score if matches else 0.0
     decision = get_decision(highest_score)
     decision_color = get_decision_color(decision)
+
+    # === LOGGING: Results ===
+    logger.info(f"[ANALYZE] Highest score: {highest_score:.4f}")
+    logger.info(f"[ANALYZE] Decision: {decision}")
+    for i, m in enumerate(matches):
+        logger.info(f"[ANALYZE] Match {i+1}: {m.title} (score: {m.similarity_score:.4f})")
 
     # Convert internal MatchResult to Pydantic schema
     match_results = [

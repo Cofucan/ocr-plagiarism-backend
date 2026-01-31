@@ -3,6 +3,8 @@ FastAPI application entry point.
 OCR Plagiarism Detection Backend API.
 """
 
+import logging
+import sys
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -13,6 +15,23 @@ from app.database import init_db, get_db, SessionLocal
 from app.routes import analyze_router
 from app.schemas.analysis import HealthResponse
 from app.seed import seed_database
+
+# Configure logging to show all debug messages
+logging.basicConfig(
+    level=logging.DEBUG if settings.DEBUG else logging.INFO,
+    format="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+    handlers=[
+        logging.StreamHandler(sys.stdout),
+    ],
+)
+
+# Set specific loggers
+logging.getLogger("app").setLevel(logging.DEBUG)
+logging.getLogger("uvicorn").setLevel(logging.INFO)
+logging.getLogger("sqlalchemy.engine").setLevel(logging.WARNING)  # Reduce SQL noise
+
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager

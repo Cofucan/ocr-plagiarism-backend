@@ -3,11 +3,15 @@ NLP preprocessing service for text cleaning.
 Prepares text for TF-IDF vectorization by removing noise.
 """
 
+import logging
 import re
 import string
 
 from nltk.corpus import stopwords
 from nltk.tokenize import word_tokenize
+
+# Configure logging
+logger = logging.getLogger(__name__)
 
 
 # Cache stopwords for performance
@@ -51,7 +55,12 @@ def clean_text(text: str) -> str:
     Returns:
         Cleaned text ready for TF-IDF vectorization
     """
+    # === LOGGING: NLP Input ===
+    logger.debug(f"[NLP] Input type: {type(text)}")
+    logger.debug(f"[NLP] Input length: {len(text) if text else 0}")
+
     if not text or not isinstance(text, str):
+        logger.warning("[NLP] Empty or invalid input text")
         return ""
 
     # Step 1: Lowercase

@@ -3,6 +3,7 @@ Similarity detection service using TF-IDF and Cosine Similarity.
 Core plagiarism detection logic.
 """
 
+import logging
 from dataclasses import dataclass
 
 from sklearn.feature_extraction.text import TfidfVectorizer
@@ -12,6 +13,9 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.models import Document
 from app.services.nlp import clean_text
+
+# Configure logging
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -60,13 +64,21 @@ def find_top_matches(
     # Clean the input text
     cleaned_input = clean_text(input_text)
 
+    # === LOGGING: Similarity Service ===
+    logger.info(f"[SIMILARITY] Input text length: {len(input_text)} chars")
+    logger.info(f"[SIMILARITY] Cleaned input length: {len(cleaned_input)} chars")
+    logger.info(f"[SIMILARITY] Cleaned input preview: {cleaned_input[:150]!r}")
+
     if not cleaned_input:
+        logger.warning("[SIMILARITY] Cleaned input is empty! Returning no matches.")
         return []
 
     # Fetch all reference documents from the database
     documents = db.query(Document).all()
+    logger.info(f"[SIMILARITY] Found {len(documents)} documents in database")
 
     if not documents:
+        logger.warning("[SIMILARITY] No documents in database! Returning no matches.")
         return []
 
     # Prepare corpus: input text + all document contents
@@ -81,8 +93,10 @@ def find_top_matches(
 
     try:
         tfidf_matrix = vectorizer.fit_transform(corpus)
-    except ValueError:
+        logger.info(f"[SIMILARITY] TF-IDF matrix shape: {tfidf_matrix.shape}")
+    except ValueError as e:
         # Empty vocabulary (no valid tokens)
+        logger.error(f"[SIMILARITY] TF-IDF failed: {e}")
         return []
 
     # Calculate cosine similarity between input (index 0) and all documents

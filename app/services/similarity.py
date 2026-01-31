@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.models import Document
 from app.services.nlp import clean_text
+from app.services.fuzzy import correct_text
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -61,11 +62,16 @@ def find_top_matches(
     if top_n is None:
         top_n = settings.TOP_MATCHES_COUNT
 
-    # Clean the input text
-    cleaned_input = clean_text(input_text)
+    # === Step 1: Fuzzy correction for OCR errors ===
+    logger.info("[SIMILARITY] Applying fuzzy correction for OCR errors...")
+    corrected_input = correct_text(input_text, db)
+
+    # === Step 2: Clean the corrected text ===
+    cleaned_input = clean_text(corrected_input)
 
     # === LOGGING: Similarity Service ===
-    logger.info(f"[SIMILARITY] Input text length: {len(input_text)} chars")
+    logger.info(f"[SIMILARITY] Original input length: {len(input_text)} chars")
+    logger.info(f"[SIMILARITY] After fuzzy correction: {len(corrected_input)} chars")
     logger.info(f"[SIMILARITY] Cleaned input length: {len(cleaned_input)} chars")
     logger.info(f"[SIMILARITY] Cleaned input preview: {cleaned_input[:150]!r}")
 

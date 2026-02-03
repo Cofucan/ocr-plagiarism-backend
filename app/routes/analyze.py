@@ -4,11 +4,19 @@ API routes for plagiarism analysis.
 
 import logging
 from fastapi import APIRouter, Depends, HTTPException
+import httpx
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.schemas.analysis import AnalysisRequest, AnalysisResponse, MatchResult
-from app.services.nlp import clean_text, get_word_count
+from app.schemas.analysis import (
+    AnalysisRequest,
+    AnalysisResponse,
+    MatchResult,
+    ExternalAnalysisResponse,
+    ExternalSourceResult,
+)
+from app.services.crossref import fetch_crossref_matches
+from app.services.nlp import clean_text
 from app.services.similarity import (
     find_top_matches,
     get_decision,
@@ -105,4 +113,57 @@ async def analyze_text(
         highest_score=round(highest_score, 4),
         word_count=word_count,
         top_matches=match_results,
+    )
+
+
+@router.post(
+    "/analyze/external",
+    response_model=ExternalAnalysisResponse,
+    summary="Analyze text against Crossref",
+    description="Queries Crossref for related academic works and returns metadata with snippets.",
+)
+async def analyze_external(
+    request: AnalysisRequest,
+) -> ExternalAnalysisResponse:
+    """
+    Analyze submitted text against Crossref.
+
+    This endpoint:
+    1. Cleans and validates the input text
+    2. Extracts keywords
+    3. Queries Crossref and returns metadata with abstract snippets
+    """
+    # === LOGGING: Incoming Request ===
+    logger.info("=" * 60)
+    logger.info("[ANALYZE-EXTERNAL] New request received")
+    logger.info(f"[ANALYZE-EXTERNAL] Student ID: {request.student_id}")
+    logger.info(f"[ANALYZE-EXTERNAL] Raw text length: {len(request.text)} chars")
+
+    cleaned_text = clean_text(request.text)
+    word_count = len(cleaned_text.split()) if cleaned_text else 0
+
+    logger.info(f"[ANALYZE-EXTERNAL] Word count after cleaning: {word_count}")
+
+    if word_count < 5:
+        raise HTTPException(
+            status_code=400,
+            detail="Text too short for external analysis. Please provide at least 5 meaningful words.",
+        )
+
+    try:
+        keywords, results = await fetch_crossref_matches(request.text)
+    except httpx.HTTPError as exc:
+        logger.exception("[ANALYZE-EXTERNAL] Crossref request failed: %s", exc)
+        raise HTTPException(
+            status_code=502,
+            detail="Crossref service unavailable. Please try again later.",
+        ) from exc
+
+    sources = [ExternalSourceResult(**result) for result in results]
+
+    return ExternalAnalysisResponse(
+        student_id=request.student_id,
+        query_keywords=keywords,
+        result_count=len(sources),
+        sources=sources,
     )

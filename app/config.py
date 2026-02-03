@@ -33,6 +33,15 @@ class Settings(BaseSettings):
     # CORS settings (for Android app access)
     CORS_ORIGINS: list[str] = ["*"]
 
+    # Crossref API settings (official free academic metadata)
+    CROSSREF_BASE_URL: str = "https://api.crossref.org"
+    CROSSREF_MAILTO: str = "your-email@example.com"
+    CROSSREF_TIMEOUT: int = 15
+    CROSSREF_MAX_RESULTS: int = 10
+    CROSSREF_MAX_KEYWORDS: int = 10
+    CROSSREF_MIN_TOKEN_LEN: int = 3
+    CROSSREF_SNIPPET_LEN: int = 400
+
 
 # Global settings instance
 settings = Settings()

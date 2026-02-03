@@ -88,3 +88,30 @@ class HealthResponse(BaseModel):
     app_name: str
     version: str
     database_connected: bool
+
+
+class ExternalSourceResult(BaseModel):
+    """
+    Schema for a single external source result (Crossref).
+    """
+
+    source: str = "Crossref"
+    doi: str | None = None
+    title: str | None = None
+    authors: list[str] = Field(default_factory=list)
+    year: int | None = None
+    abstract_snippet: str | None = None
+    score: float | None = Field(default=None, ge=0.0, le=1.0)
+    url: str | None = None
+    publisher: str | None = None
+
+
+class ExternalAnalysisResponse(BaseModel):
+    """
+    Response schema for the /api/analyze/external endpoint.
+    """
+
+    student_id: str
+    query_keywords: list[str] = Field(default_factory=list)
+    result_count: int = Field(..., ge=0)
+    sources: list[ExternalSourceResult] = Field(default_factory=list)

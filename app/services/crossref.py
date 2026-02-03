@@ -1,0 +1,134 @@
+"""
+Crossref API client for fetching academic metadata (official free API).
+"""
+
+from __future__ import annotations
+
+import logging
+import re
+from typing import Any
+
+import httpx
+
+from app.config import settings
+from app.services.nlp import extract_keywords
+
+logger = logging.getLogger(__name__)
+
+
+def _normalize_whitespace(text: str) -> str:
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _strip_tags(text: str) -> str:
+    return re.sub(r"<[^>]+>", " ", text)
+
+
+def _truncate(text: str | None, max_len: int) -> str | None:
+    if not text:
+        return None
+    text = _normalize_whitespace(text)
+    if len(text) <= max_len:
+        return text
+    return f"{text[:max_len].rstrip()}..."
+
+
+def _extract_year(item: dict[str, Any]) -> int | None:
+    issued = item.get("issued") or {}
+    date_parts = issued.get("date-parts") or []
+    if not date_parts:
+        return None
+    first = date_parts[0]
+    if not first:
+        return None
+    year = first[0]
+    return int(year) if isinstance(year, int) else None
+
+
+def _extract_title(item: dict[str, Any]) -> str | None:
+    title = item.get("title") or []
+    if isinstance(title, list) and title:
+        return title[0]
+    if isinstance(title, str):
+        return title
+    return None
+
+
+def _extract_authors(item: dict[str, Any]) -> list[str]:
+    authors = []
+    for author in item.get("author", []) or []:
+        given = author.get("given") or ""
+        family = author.get("family") or ""
+        name = " ".join(part for part in [given, family] if part)
+        if name:
+            authors.append(name)
+    return authors
+
+
+def _normalize_scores(results: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    scores = [r.get("score") for r in results if isinstance(r.get("score"), (int, float))]
+    if not scores:
+        return results
+    max_score = max(scores)
+    if max_score <= 0:
+        return results
+    for result in results:
+        score = result.get("score")
+        if isinstance(score, (int, float)):
+            result["score"] = round(score / max_score, 4)
+    return results
+
+
+async def fetch_crossref_matches(text: str) -> tuple[list[str], list[dict[str, Any]]]:
+    """
+    Query Crossref works endpoint using keyword-based bibliographic search.
+
+    Returns:
+        (keywords, results)
+    """
+    keywords = extract_keywords(text)
+    if not keywords:
+        return [], []
+
+    query = " ".join(keywords)
+    params = {
+        "query.bibliographic": query,
+        "rows": settings.CROSSREF_MAX_RESULTS,
+        "mailto": settings.CROSSREF_MAILTO,
+        "select": "DOI,title,author,issued,abstract,URL,publisher,score",
+    }
+
+    logger.info("[CROSSREF] Querying Crossref with keywords: %s", keywords)
+
+    async with httpx.AsyncClient(
+        base_url=settings.CROSSREF_BASE_URL,
+        timeout=settings.CROSSREF_TIMEOUT,
+    ) as client:
+        response = await client.get("/works", params=params)
+        response.raise_for_status()
+        payload = response.json()
+
+    items = (payload.get("message") or {}).get("items") or []
+    results: list[dict[str, Any]] = []
+
+    for item in items:
+        abstract = item.get("abstract")
+        if abstract:
+            abstract = _truncate(_strip_tags(abstract), settings.CROSSREF_SNIPPET_LEN)
+
+        results.append(
+            {
+                "source": "Crossref",
+                "doi": item.get("DOI"),
+                "title": _extract_title(item),
+                "authors": _extract_authors(item),
+                "year": _extract_year(item),
+                "abstract_snippet": abstract,
+                "score": item.get("score"),
+                "url": item.get("URL"),
+                "publisher": item.get("publisher"),
+            }
+        )
+
+    results = _normalize_scores(results)
+    return keywords, results

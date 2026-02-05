@@ -34,13 +34,14 @@ class Settings(BaseSettings):
     CORS_ORIGINS: list[str] = ["*"]
 
     # Crossref API settings (official free academic metadata)
+    # IMPORTANT: Set a valid email to comply with Crossref API etiquette
     CROSSREF_BASE_URL: str = "https://api.crossref.org"
-    CROSSREF_MAILTO: str = "your-email@example.com"
-    CROSSREF_TIMEOUT: int = 15
-    CROSSREF_MAX_RESULTS: int = 10
-    CROSSREF_MAX_KEYWORDS: int = 10
-    CROSSREF_MIN_TOKEN_LEN: int = 3
-    CROSSREF_SNIPPET_LEN: int = 400
+    CROSSREF_MAILTO: str = "cofucan@gmail.com"  # TODO: Update with your actual email
+    CROSSREF_TIMEOUT: int = 15  # Request timeout in seconds
+    CROSSREF_MAX_RESULTS: int = 10  # Max results to return per query
+    CROSSREF_MAX_KEYWORDS: int = 10  # Max keywords to extract for search
+    CROSSREF_MIN_TOKEN_LEN: int = 3  # Minimum keyword length
+    CROSSREF_SNIPPET_LEN: int = 400  # Max abstract snippet length
 
 
 # Global settings instance

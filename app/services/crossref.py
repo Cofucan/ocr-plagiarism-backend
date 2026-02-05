@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 from typing import Any
 
 import httpx
@@ -14,6 +15,11 @@ from app.config import settings
 from app.services.nlp import extract_keywords
 
 logger = logging.getLogger(__name__)
+
+# Simple in-memory cache for educational purposes
+# Key: query string, Value: (timestamp, results)
+_CACHE: dict[str, tuple[float, list[dict[str, Any]]]] = {}
+_CACHE_TTL: int = 3600  # 1 hour in seconds
 
 
 def _normalize_whitespace(text: str) -> str:
@@ -79,18 +85,30 @@ def _normalize_scores(results: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return results
 
 
-async def fetch_crossref_matches(text: str) -> tuple[list[str], list[dict[str, Any]]]:
+async def fetch_crossref_matches(text: str) -> tuple[list[str], list[dict[str, Any]], float]:
     """
     Query Crossref works endpoint using keyword-based bibliographic search.
 
     Returns:
-        (keywords, results)
+        (keywords, results, latency_seconds)
     """
+    start_time = time.time()
+
     keywords = extract_keywords(text)
     if not keywords:
-        return [], []
+        return [], [], 0.0
 
     query = " ".join(keywords)
+
+    # Check cache first
+    now = time.time()
+    if query in _CACHE:
+        cached_time, cached_results = _CACHE[query]
+        if now - cached_time < _CACHE_TTL:
+            latency = time.time() - start_time
+            logger.info("[CROSSREF] Cache hit for query (age: %.1fs)", now - cached_time)
+            return keywords, cached_results, latency
+
     params = {
         "query.bibliographic": query,
         "rows": settings.CROSSREF_MAX_RESULTS,
@@ -131,4 +149,11 @@ async def fetch_crossref_matches(text: str) -> tuple[list[str], list[dict[str, A
         )
 
     results = _normalize_scores(results)
-    return keywords, results
+
+    # Cache results for future requests
+    _CACHE[query] = (time.time(), results)
+
+    latency = time.time() - start_time
+    logger.info("[CROSSREF] Query completed in %.3f seconds", latency)
+
+    return keywords, results, latency

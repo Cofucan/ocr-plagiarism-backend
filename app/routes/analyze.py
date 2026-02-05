@@ -151,7 +151,7 @@ async def analyze_external(
         )
 
     try:
-        keywords, results = await fetch_crossref_matches(request.text)
+        keywords, results, latency = await fetch_crossref_matches(request.text)
     except httpx.HTTPError as exc:
         logger.exception("[ANALYZE-EXTERNAL] Crossref request failed: %s", exc)
         raise HTTPException(
@@ -161,9 +161,12 @@ async def analyze_external(
 
     sources = [ExternalSourceResult(**result) for result in results]
 
+    logger.info(f"[ANALYZE-EXTERNAL] Returned {len(sources)} sources in {latency:.3f}s")
+
     return ExternalAnalysisResponse(
         student_id=request.student_id,
         query_keywords=keywords,
         result_count=len(sources),
         sources=sources,
+        latency_seconds=round(latency, 3),
     )

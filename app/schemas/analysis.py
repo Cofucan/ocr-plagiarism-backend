@@ -115,3 +115,8 @@ class ExternalAnalysisResponse(BaseModel):
     query_keywords: list[str] = Field(default_factory=list)
     result_count: int = Field(..., ge=0)
     sources: list[ExternalSourceResult] = Field(default_factory=list)
+    latency_seconds: float = Field(
+        ...,
+        ge=0.0,
+        description="Time taken to fetch external results (for educational reporting)",
+    )

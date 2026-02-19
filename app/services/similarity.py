@@ -5,7 +5,6 @@ Core plagiarism detection logic.
 
 import logging
 from dataclasses import dataclass
-
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 from sqlalchemy.orm import Session
@@ -160,3 +159,43 @@ def get_decision_color(decision: str) -> str:
         return "yellow"
     else:
         return "green"
+
+
+def calculate_ngram_similarity(text1: str, text2: str, n: int = 3) -> float:
+    """
+    Calculate n-gram based plagiarism similarity between two texts.
+
+    Uses token-level n-grams (not character-level) for robustness against
+    minor variations in punctuation and whitespace.
+
+    Args:
+        text1: Student's text (should be cleaned)
+        text2: Reference text/abstract (should be cleaned)
+        n: Size of n-gram (default 3 = trigrams)
+
+    Returns:
+        Plagiarism score (0.0 to 1.0) based on n-gram overlap
+    """
+    if not text1 or not text2:
+        return 0.0
+
+    # Tokenize by splitting on whitespace
+    tokens1 = text1.split()
+    tokens2 = text2.split()
+
+    if len(tokens1) < n or len(tokens2) < n:
+        return 0.0
+
+    # Generate n-grams (sequences of n tokens)
+    ngrams1 = set(tuple(tokens1[i:i + n]) for i in range(len(tokens1) - n + 1))
+    ngrams2 = set(tuple(tokens2[i:i + n]) for i in range(len(tokens2) - n + 1))
+
+    if not ngrams1 or not ngrams2:
+        return 0.0
+
+    # Calculate Jaccard similarity (intersection / union)
+    intersection = len(ngrams1 & ngrams2)
+    union = len(ngrams1 | ngrams2)
+
+    similarity = intersection / union if union > 0 else 0.0
+    return min(similarity, 1.0)  # Ensure 0.0-1.0 range

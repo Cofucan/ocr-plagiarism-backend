@@ -69,6 +69,7 @@ Queries Crossref for academic works related to the submitted text.
 | `score` | number or null | Crossref's relevance score normalized to 0.0-1.0 range. Higher score = more relevant to the query keywords. Example: `1.0` = perfect match, `0.5` = moderate match. Helps instructors assess how closely the source matches the submitted text. `null` if score unavailable. |
 | `url` | string or null | Direct link to the paper's DOI resolver: https://doi.org/{doi}. Click this to view or download the actual paper. `null` if no URL available. |
 | `publisher` | string or null | Publishing organization (e.g., IEEE, Elsevier, ACM). Indicates the credibility and authority of the source. Useful for academic context analysis. `null` if publisher info unavailable. |
+| `plagiarism_score` | number or null | **NEW: N-gram based plagiarism detection vs. abstract (0.0-1.0)**. Calculated by comparing the student's text against the paper's abstract snippet using trigram (3-word) matching. Higher = more text overlap detected. `null` if abstract unavailable (cannot calculate plagiarism score). |
 
 ### Example Interpretation
 
@@ -88,19 +89,21 @@ Queries Crossref for academic works related to the submitted text.
       "abstract_snippet": "Neural networks are a powerful machine learning technique that has been applied to many domains...",
       "score": 0.862,
       "url": "https://doi.org/10.1201/b22400-15",
-      "publisher": "Chapman and Hall/CRC"
+      "publisher": "Chapman and Hall/CRC",
+      "plagiarism_score": 0.42
     }
   ]
 }
 ```
 
-**What this tells you:**
-- The student's text focused on neural networks and deep learning (extracted keywords)
-- System found 10 relevant sources in Crossref
-- First result is a 2018 textbook by Neapolitan & Jiang (credible academic source)
-- Score of 0.862 indicates strong relevance to the submitted text
-- Query took ~2.1 seconds (first call; would cache for future calls)
-- You can click the URL to verify the paper exists and check for word-for-word plagiarism
+**Complete Interpretation:**
+- **Relevance Score (0.862)**: This paper is **highly relevant** to the student's topic (strong keyword match)
+- **Plagiarism Score (0.42)**: The student's text has **moderate overlap** with the abstract (potential paraphrasing or common terminology)
+- **Combined Assessment**:
+  - ✓ Student is writing about the right topic
+  - ⚠️ Some text similarity detected - verify if properly cited
+  - 📎 Use the DOI to access full paper and check for word-for-word plagiarism
+- **Next Step**: Instructor should click the DOI link to verify the citation status
 
 ## Configuration
 
@@ -213,6 +216,72 @@ curl -X POST http://localhost:8000/api/analyze/external \
 - Compliant with academic API usage policies
 
 ## Understanding the Results
+
+### Plagiarism Score Interpretation (**NEW**)
+
+The `plagiarism_score` field (0.0-1.0) indicates the level of **n-gram overlap** between the student's text and the paper's abstract:
+
+| Score Range | Interpretation | Action |
+|------------|-----------------|--------|
+| **0.0-0.15** | Minimal overlap | Very unlikely to be plagiarism. Normal academic writing may use field terminology. |
+| **0.15-0.35** | Moderate overlap | Potential source but low plagiarism concern. Student may have paraphrased or cited. |
+| **0.35-0.60** | High overlap | **Flag for review.** Significant text similarity detected. Verify if student cited the source. |
+| **0.60-0.80** | Very high overlap | **Strong plagiarism indicator.** Large portions of text match abstract. Likely unattributed copying. |
+| **0.80-1.0** | Near exact match | **Critical plagiarism.** Text appears to be copied directly from abstract with minimal paraphrasing. |
+| **N/A** | No abstract available | Cannot calculate plagiarism score. Requires accessing full paper text (beyond scope of this tool). |
+
+**Example Interpretation:**
+- Student submits: "Machine learning neural networks enable computers to learn from data"
+- Crossref abstract excerpt: "neural networks enable systems to learn from experience without explicit programming"
+- `plagiarism_score`: ~0.45 (moderate overlap due to shared phrases)
+- **Action**: Investigate further; may be legitimate citation or paraphrasing
+
+### How Plagiarism Score is Calculated
+
+The system uses **trigram matching** (3-word sequences):
+
+```python
+1. Clean both texts (remove stopwords, lowercase, tokenize)
+2. Extract all 3-word sequences (trigrams) from both texts
+3. Find common trigrams between student text and abstract
+4. Calculate Jaccard similarity: (intersection ∩ union) / union
+5. Return score 0.0-1.0
+```
+
+**Example:**
+```
+Student text: "deep learning networks process data efficiently"
+Abstract:     "deep learning techniques process information quickly"
+
+Trigrams in student text:
+  ["deep", "learning", "networks"]
+  ["learning", "networks", "process"]
+  ["networks", "process", "data"]
+  ["process", "data", "efficiently"]
+
+Trigrams in abstract:
+  ["deep", "learning", "techniques"]
+  ["learning", "techniques", "process"]
+  ["techniques", "process", "information"]
+  ["process", "information", "quickly"]
+
+Common trigrams: ["process"] (at index level, not full match)
+Jaccard = 1/7 = 0.14 → Low plagiarism concern
+```
+
+### Limitations of Abstract-Based Detection
+
+⚠️ **Important:** This plagiarism detection has limitations:
+
+1. **Abstract-only matching**: Only compares against ~400-char abstracts, not full papers
+2. **Paraphrasing:** Detects word/phrase overlap but misses sophisticated paraphrasing
+3. **Domain terminology:** Technical fields have common terms (e.g., "neural networks") that naturally appear in multiple papers
+4. **No semantic understanding:** Doesn't understand meaning, only n-gram patterns
+
+**For Full Plagiarism Detection:**
+- Use the local database check (`/api/analyze`) for reference documents
+- For comprehensive checking, manually verify flagged papers via DOI links
+- For institutional grade plagiarism detection, integrate Turnitin API (paid)
 
 ### Score Interpretation
 

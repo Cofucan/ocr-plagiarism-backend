@@ -104,6 +104,12 @@ class ExternalSourceResult(BaseModel):
     score: float | None = Field(default=None, ge=0.0, le=1.0)
     url: str | None = None
     publisher: str | None = None
+    plagiarism_score: float | None = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="N-gram plagiarism score (0=no match, 1=plagiarism). Higher indicates more plagiarism.",
+    )
 
 
 class ExternalAnalysisResponse(BaseModel):

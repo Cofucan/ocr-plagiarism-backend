@@ -12,7 +12,8 @@ from typing import Any
 import httpx
 
 from app.config import settings
-from app.services.nlp import extract_keywords
+from app.services.nlp import extract_keywords, clean_text
+from app.services.similarity import calculate_ngram_similarity
 
 logger = logging.getLogger(__name__)
 
@@ -88,9 +89,10 @@ def _normalize_scores(results: list[dict[str, Any]]) -> list[dict[str, Any]]:
 async def fetch_crossref_matches(text: str) -> tuple[list[str], list[dict[str, Any]], float]:
     """
     Query Crossref works endpoint using keyword-based bibliographic search.
+    Also calculates plagiarism scores against paper abstracts.
 
     Returns:
-        (keywords, results, latency_seconds)
+        (keywords, results_with_plagiarism_scores, latency_seconds)
     """
     start_time = time.time()
 
@@ -99,6 +101,7 @@ async def fetch_crossref_matches(text: str) -> tuple[list[str], list[dict[str, A
         return [], [], 0.0
 
     query = " ".join(keywords)
+    cleaned_input = clean_text(text)
 
     # Check cache first
     now = time.time()
@@ -131,8 +134,15 @@ async def fetch_crossref_matches(text: str) -> tuple[list[str], list[dict[str, A
 
     for item in items:
         abstract = item.get("abstract")
+        abstract_snippet = None
+        plagiarism_score = None
+
         if abstract:
-            abstract = _truncate(_strip_tags(abstract), settings.CROSSREF_SNIPPET_LEN)
+            abstract_snippet = _truncate(_strip_tags(abstract), settings.CROSSREF_SNIPPET_LEN)
+            # Calculate plagiarism score against the abstract
+            cleaned_abstract = clean_text(abstract_snippet or "")
+            if cleaned_abstract and cleaned_input:
+                plagiarism_score = calculate_ngram_similarity(cleaned_input, cleaned_abstract)
 
         results.append(
             {
@@ -141,10 +151,11 @@ async def fetch_crossref_matches(text: str) -> tuple[list[str], list[dict[str, A
                 "title": _extract_title(item),
                 "authors": _extract_authors(item),
                 "year": _extract_year(item),
-                "abstract_snippet": abstract,
+                "abstract_snippet": abstract_snippet,
                 "score": item.get("score"),
                 "url": item.get("URL"),
                 "publisher": item.get("publisher"),
+                "plagiarism_score": plagiarism_score,
             }
         )
 

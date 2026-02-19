@@ -47,6 +47,12 @@ async def test_crossref():
             print(f"  Publisher: {result.get('publisher', 'N/A')}")
             print(f"  Score: {result.get('score', 'N/A')}")
 
+            plagiarism_score = result.get('plagiarism_score')
+            if plagiarism_score is not None:
+                print(f"  Plagiarism Score: {plagiarism_score:.4f} (n-gram match)")
+            else:
+                print("  Plagiarism Score: N/A (no abstract available)")
+
             snippet = result.get('abstract_snippet')
             if snippet:
                 print(f"  Abstract: {snippet[:150]}...")

@@ -44,6 +44,64 @@ Queries Crossref for academic works related to the submitted text.
 }
 ```
 
+## Response Properties Explained
+
+### Top-Level Fields
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `student_id` | string | Echo of the student ID from the request. Used for tracking and logging which student submitted the text. |
+| `query_keywords` | array[string] | The top keywords extracted from the submitted text using frequency-based ranking. These are the terms used to search Crossref. Useful for understanding how the system interpreted the document's main topics. |
+| `result_count` | integer | Total number of sources found in Crossref matching the query keywords. Ranges from 0 to `CROSSREF_MAX_RESULTS` (default: 10). |
+| `latency_seconds` | number | Time taken (in seconds) to complete the Crossref query. First calls: 1-3 seconds. Cached calls: <50ms. Useful for measuring API performance and cache effectiveness. |
+| `sources` | array[object] | Array of academic sources found in Crossref. Each object contains metadata about a published work. See below for individual source field descriptions. |
+
+### Source Object Fields (within `sources` array)
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `source` | string | Database identifier. Currently always `"Crossref"` (extensible for future API sources like arXiv, PubMed). |
+| `doi` | string or null | Digital Object Identifier - a unique persistent identifier for academic publications. Example: `10.1234/example.doi`. Can be looked up at https://doi.org/{doi}. `null` if not available. |
+| `title` | string or null | Full title of the published work. Used for identifying the exact paper. `null` if metadata missing. |
+| `authors` | array[string] | List of author names extracted from the publication metadata. Empty array `[]` if no authors found (some publications don't have author details in Crossref). Helps verify authorship and identify co-authors. |
+| `year` | integer or null | Publication year. Useful for determining how recent the source is. `null` if publication date not available in Crossref. |
+| `abstract_snippet` | string or null | Truncated abstract (max 400 characters by default) from the paper. Provides context about the paper's content. Stripped of HTML tags for clean display. `null` if no abstract available in Crossref. |
+| `score` | number or null | Crossref's relevance score normalized to 0.0-1.0 range. Higher score = more relevant to the query keywords. Example: `1.0` = perfect match, `0.5` = moderate match. Helps instructors assess how closely the source matches the submitted text. `null` if score unavailable. |
+| `url` | string or null | Direct link to the paper's DOI resolver: https://doi.org/{doi}. Click this to view or download the actual paper. `null` if no URL available. |
+| `publisher` | string or null | Publishing organization (e.g., IEEE, Elsevier, ACM). Indicates the credibility and authority of the source. Useful for academic context analysis. `null` if publisher info unavailable. |
+
+### Example Interpretation
+
+```json
+{
+  "student_id": "STU-2026-001",
+  "query_keywords": ["neural", "networks", "learning", "deep"],
+  "result_count": 10,
+  "latency_seconds": 2.134,
+  "sources": [
+    {
+      "source": "Crossref",
+      "doi": "10.1201/b22400-15",
+      "title": "Neural Networks and Deep Learning",
+      "authors": ["Richard E. Neapolitan", "Xia Jiang"],
+      "year": 2018,
+      "abstract_snippet": "Neural networks are a powerful machine learning technique that has been applied to many domains...",
+      "score": 0.862,
+      "url": "https://doi.org/10.1201/b22400-15",
+      "publisher": "Chapman and Hall/CRC"
+    }
+  ]
+}
+```
+
+**What this tells you:**
+- The student's text focused on neural networks and deep learning (extracted keywords)
+- System found 10 relevant sources in Crossref
+- First result is a 2018 textbook by Neapolitan & Jiang (credible academic source)
+- Score of 0.862 indicates strong relevance to the submitted text
+- Query took ~2.1 seconds (first call; would cache for future calls)
+- You can click the URL to verify the paper exists and check for word-for-word plagiarism
+
 ## Configuration
 
 Update these settings in `app/config.py` or `.env`:
@@ -153,6 +211,54 @@ curl -X POST http://localhost:8000/api/analyze/external \
 - No persistent cache database needed
 - Easy to understand and extend
 - Compliant with academic API usage policies
+
+## Understanding the Results
+
+### Score Interpretation
+
+The `score` field (0.0-1.0) indicates how relevant each Crossref result is to the submitted text:
+
+| Score Range | Interpretation | Use Case |
+|------------|-----------------|----------|
+| **0.9-1.0** | Highly relevant | Direct match or very similar topic. Strong indicator of potential plagiarism if text is identical. |
+| **0.7-0.89** | Very relevant | Related scholarly work. Good reference for comparison. Student should cite if used. |
+| **0.5-0.69** | Relevant | Somewhat related to the topic. May share keywords but different focus. |
+| **0.0-0.49** | Marginally relevant | Weak match. Included in results due to keyword overlap. Less concern for plagiarism. |
+
+### Keywords Analysis
+
+The `query_keywords` array shows how the system understood the main topics:
+
+**Good indicators (relevant keywords extracted):**
+- Technical terms: "neural", "networks", "deep", "learning"
+- Avoid: common words like "system", "data"
+
+**What it reveals:**
+- Which concepts dominate the student's text
+- Whether the submission focuses on main topic or tangential areas
+- Quality of OCR (for physical document submissions)
+
+### Latency Insights
+
+The `latency_seconds` field has educational value:
+
+- **2-3 seconds** (network call): Shows real API latency
+- **<50ms** (cached): Demonstrates caching effectiveness
+- **>5 seconds**: May indicate network issues or Crossref slowness
+
+**For your thesis:** Track latency across multiple queries to show:
+- Average API response time
+- Cache hit rate improvement
+- Cost-effectiveness of caching strategy
+
+### DOI and URL Fields
+
+The `doi` and `url` fields enable verification:
+
+1. **Click the URL** to access the actual paper source
+2. **Verify publication details** match Crossref records
+3. **Check academic legitimacy** by publisher reputation
+4. **Enable detailed plagiarism checking** if needed (detect copy-paste vs. paraphrasing)
 
 ## Troubleshooting
 

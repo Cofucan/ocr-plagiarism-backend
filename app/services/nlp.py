@@ -5,9 +5,12 @@ Prepares text for TF-IDF vectorization by removing noise.
 
 import logging
 import re
+from collections import Counter
 
 from nltk.corpus import stopwords
 from nltk.tokenize import word_tokenize
+
+from app.config import settings
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -94,3 +97,39 @@ def get_word_count(text: str) -> int:
     if not cleaned:
         return 0
     return len(cleaned.split())
+
+
+def extract_keywords(
+    text: str,
+    max_keywords: int | None = None,
+    min_token_len: int | None = None,
+) -> list[str]:
+    """
+    Extract top keywords using frequency ranking.
+
+    Args:
+        text: Raw input text (possibly from OCR)
+        max_keywords: Max keywords to return (default from settings)
+        min_token_len: Minimum token length (default from settings)
+
+    Returns:
+        List of keywords ordered by frequency
+    """
+    if not text or not isinstance(text, str):
+        return []
+
+    if max_keywords is None:
+        max_keywords = settings.CROSSREF_MAX_KEYWORDS
+    if min_token_len is None:
+        min_token_len = settings.CROSSREF_MIN_TOKEN_LEN
+
+    cleaned = clean_text(text)
+    if not cleaned:
+        return []
+
+    tokens = [t for t in cleaned.split() if len(t) >= min_token_len]
+    if not tokens:
+        return []
+
+    counts = Counter(tokens)
+    return [word for word, _ in counts.most_common(max_keywords)]

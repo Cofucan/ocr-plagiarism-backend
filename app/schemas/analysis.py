@@ -47,6 +47,56 @@ class MatchResult(BaseModel):
     category: str
     source: str | None = None
     score: float = Field(..., ge=0.0, le=1.0)
+    tfidf_score: float = Field(0.0, ge=0.0, le=1.0)
+    fuzzy_score: float = Field(0.0, ge=0.0, le=1.0)
+    phrase_overlap_score: float = Field(0.0, ge=0.0, le=1.0)
+    raw_tfidf_score: float = Field(0.0, ge=0.0, le=1.0)
+    corrected_tfidf_score: float = Field(0.0, ge=0.0, le=1.0)
+    matched_phrases: list[str] = Field(default_factory=list)
+    suspicious_chunks: list["ChunkMatch"] = Field(default_factory=list)
+
+
+class ChunkMatch(BaseModel):
+    """
+    Evidence for one suspicious chunk in the submitted text.
+
+    Attributes:
+        input_chunk: Submitted text chunk
+        matched_chunk: Most similar reference chunk
+        score: Chunk-level fuzzy similarity score
+    """
+
+    input_chunk: str
+    matched_chunk: str
+    score: float = Field(..., ge=0.0, le=1.0)
+
+
+class TextCorrection(BaseModel):
+    """
+    OCR-style correction applied before similarity scoring.
+    """
+
+    original: str
+    corrected: str
+    confidence: float = Field(..., ge=0.0, le=100.0)
+
+
+class AnalysisStats(BaseModel):
+    """
+    Extra metadata that explains how the analysis was performed.
+    """
+
+    raw_word_count: int = Field(..., ge=0)
+    cleaned_word_count: int = Field(..., ge=0)
+    corrected_word_count: int = Field(..., ge=0)
+    documents_checked: int = Field(..., ge=0)
+    corrections_made: int = Field(..., ge=0)
+    corrections: list[TextCorrection] = Field(default_factory=list)
+    matched_chunk_count: int = Field(..., ge=0)
+    confidence_level: str
+    analysis_method: str
+    thresholds: dict[str, float]
+    score_weights: dict[str, float]
 
 
 class AnalysisResponse(BaseModel):
@@ -79,6 +129,7 @@ class AnalysisResponse(BaseModel):
         default_factory=list,
         description="Top N most similar documents",
     )
+    stats: AnalysisStats
 
 
 class HealthResponse(BaseModel):
@@ -88,3 +139,56 @@ class HealthResponse(BaseModel):
     app_name: str
     version: str
     database_connected: bool
+
+
+class ExternalSourceResult(BaseModel):
+    """
+    Schema for a single external source result (Crossref).
+    """
+
+    source: str = "Crossref"
+    doi: str | None = None
+    title: str | None = None
+    authors: list[str] = Field(default_factory=list)
+    year: int | None = None
+    abstract_snippet: str | None = None
+    score: float | None = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="Deprecated alias for crossref_relevance_score.",
+    )
+    crossref_raw_score: float | None = None
+    crossref_relevance_score: float | None = Field(default=None, ge=0.0, le=1.0)
+    text_similarity_score: float | None = Field(default=None, ge=0.0, le=1.0)
+    external_risk_score: float = Field(default=0.0, ge=0.0, le=1.0)
+    url: str | None = None
+    publisher: str | None = None
+    plagiarism_score: float | None = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="Deprecated alias for text_similarity_score.",
+    )
+    matched_phrases: list[str] = Field(default_factory=list)
+    source_quality: dict[str, bool | float] = Field(default_factory=dict)
+    similarity_basis: str | None = None
+
+
+class ExternalAnalysisResponse(BaseModel):
+    """
+    Response schema for the /api/analyze/external endpoint.
+    """
+
+    student_id: str
+    query_keywords: list[str] = Field(default_factory=list)
+    query: str
+    query_strategies: list[str] = Field(default_factory=list)
+    result_count: int = Field(..., ge=0)
+    sources: list[ExternalSourceResult] = Field(default_factory=list)
+    latency_seconds: float = Field(
+        ...,
+        ge=0.0,
+        description="Time taken to fetch external results (for educational reporting)",
+    )
+    cache_hit: bool = False

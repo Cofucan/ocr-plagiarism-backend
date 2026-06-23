@@ -4,13 +4,24 @@ API routes for plagiarism analysis.
 
 import logging
 from fastapi import APIRouter, Depends, HTTPException
+import httpx
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.schemas.analysis import AnalysisRequest, AnalysisResponse, MatchResult
-from app.services.nlp import clean_text, get_word_count
+from app.schemas.analysis import (
+    AnalysisRequest,
+    AnalysisResponse,
+    ExternalAnalysisResponse,
+    ExternalSourceResult,
+    AnalysisStats,
+    ChunkMatch,
+    MatchResult,
+    TextCorrection,
+)
+from app.services.crossref import fetch_crossref_matches
+from app.services.nlp import clean_text
 from app.services.similarity import (
-    find_top_matches,
+    analyze_similarity,
     get_decision,
     get_decision_color,
 )
@@ -25,7 +36,10 @@ router = APIRouter(prefix="/api", tags=["Analysis"])
     "/analyze",
     response_model=AnalysisResponse,
     summary="Analyze text for plagiarism",
-    description="Compares input text against the document repository and returns similarity scores.",
+    description=(
+        "Compares input text against the document repository and returns hybrid "
+        "similarity scores, evidence snippets, OCR correction stats, and a verdict."
+    ),
 )
 async def analyze_text(
     request: AnalysisRequest,
@@ -36,8 +50,8 @@ async def analyze_text(
 
     This endpoint:
     1. Cleans and preprocesses the input text
-    2. Compares it against all documents in the repository using TF-IDF + Cosine Similarity
-    3. Returns the top 3 most similar documents with their scores
+    2. Compares it against all documents using cached TF-IDF, fuzzy, and phrase signals
+    3. Returns the top matches with scores and reviewer evidence
     4. Provides a decision based on configurable thresholds
 
     Args:
@@ -70,9 +84,10 @@ async def analyze_text(
             detail="Text too short for analysis. Please provide at least 5 meaningful words.",
         )
 
-    # Find top matching documents
-    logger.info("[ANALYZE] Calling find_top_matches...")
-    matches = find_top_matches(request.text, db)
+    # Find top matching documents and analysis metadata
+    logger.info("[ANALYZE] Calling analyze_similarity...")
+    analysis = analyze_similarity(request.text, db)
+    matches = analysis.matches
     logger.info(f"[ANALYZE] Found {len(matches)} matches")
 
     # Determine highest score and decision
@@ -94,9 +109,43 @@ async def analyze_text(
             category=m.category,
             source=m.source,
             score=round(m.similarity_score, 4),
+            tfidf_score=round(m.tfidf_score, 4),
+            fuzzy_score=round(m.fuzzy_score, 4),
+            phrase_overlap_score=round(m.phrase_overlap_score, 4),
+            raw_tfidf_score=round(m.raw_tfidf_score, 4),
+            corrected_tfidf_score=round(m.corrected_tfidf_score, 4),
+            matched_phrases=m.matched_phrases,
+            suspicious_chunks=[
+                ChunkMatch(
+                    input_chunk=chunk.input_chunk,
+                    matched_chunk=chunk.matched_chunk,
+                    score=round(chunk.score, 4),
+                )
+                for chunk in m.suspicious_chunks
+            ],
         )
         for m in matches
     ]
+    stats = AnalysisStats(
+        raw_word_count=analysis.metadata.raw_word_count,
+        cleaned_word_count=analysis.metadata.cleaned_word_count,
+        corrected_word_count=analysis.metadata.corrected_word_count,
+        documents_checked=analysis.metadata.documents_checked,
+        corrections_made=analysis.metadata.corrections_made,
+        corrections=[
+            TextCorrection(
+                original=correction.original,
+                corrected=correction.corrected,
+                confidence=round(correction.confidence, 2),
+            )
+            for correction in analysis.metadata.corrections
+        ],
+        matched_chunk_count=analysis.metadata.matched_chunk_count,
+        confidence_level=analysis.metadata.confidence_level,
+        analysis_method=analysis.metadata.analysis_method,
+        thresholds=analysis.metadata.thresholds,
+        score_weights=analysis.metadata.score_weights,
+    )
 
     return AnalysisResponse(
         student_id=request.student_id,
@@ -105,4 +154,87 @@ async def analyze_text(
         highest_score=round(highest_score, 4),
         word_count=word_count,
         top_matches=match_results,
+        stats=stats,
+    )
+
+
+@router.post(
+    "/analyze/external",
+    response_model=ExternalAnalysisResponse,
+    summary="Analyze text against Crossref",
+    description="Queries Crossref for related academic works and returns metadata with snippets.",
+)
+async def analyze_external(
+    request: AnalysisRequest,
+) -> ExternalAnalysisResponse:
+    """
+    Analyze submitted text against Crossref.
+
+    This endpoint:
+    1. Cleans and validates the input text
+    2. Extracts keywords
+    3. Queries Crossref and returns metadata with abstract snippets
+    """
+    # === LOGGING: Incoming Request ===
+    logger.info("=" * 60)
+    logger.info("[ANALYZE-EXTERNAL] New request received")
+    logger.info(f"[ANALYZE-EXTERNAL] Student ID: {request.student_id}")
+    logger.info(f"[ANALYZE-EXTERNAL] Raw text length: {len(request.text)} chars")
+
+    cleaned_text = clean_text(request.text)
+    word_count = len(cleaned_text.split()) if cleaned_text else 0
+
+    logger.info(f"[ANALYZE-EXTERNAL] Word count after cleaning: {word_count}")
+
+    if word_count < 5:
+        raise HTTPException(
+            status_code=400,
+            detail="Text too short for external analysis. Please provide at least 5 meaningful words.",
+        )
+
+    try:
+        external_analysis = await fetch_crossref_matches(request.text)
+    except httpx.TimeoutException as exc:
+        logger.exception("[ANALYZE-EXTERNAL] Crossref request timed out: %s", exc)
+        raise HTTPException(
+            status_code=504,
+            detail="Crossref request timed out. Please try again later.",
+        ) from exc
+    except httpx.HTTPStatusError as exc:
+        logger.exception("[ANALYZE-EXTERNAL] Crossref returned an error: %s", exc)
+        if exc.response.status_code == 429:
+            detail = "Crossref rate limit reached. Please try again later."
+        else:
+            detail = "Crossref service returned an error. Please try again later."
+        raise HTTPException(
+            status_code=502,
+            detail=detail,
+        ) from exc
+    except httpx.HTTPError as exc:
+        logger.exception("[ANALYZE-EXTERNAL] Crossref request failed: %s", exc)
+        raise HTTPException(
+            status_code=502,
+            detail="Crossref service unavailable. Please try again later.",
+        ) from exc
+
+    sources = [
+        ExternalSourceResult(**result)
+        for result in external_analysis.results
+    ]
+
+    logger.info(
+        "[ANALYZE-EXTERNAL] Returned %d sources in %.3fs",
+        len(sources),
+        external_analysis.latency_seconds,
+    )
+
+    return ExternalAnalysisResponse(
+        student_id=request.student_id,
+        query_keywords=external_analysis.keywords,
+        query=external_analysis.query,
+        query_strategies=external_analysis.query_strategies,
+        result_count=len(sources),
+        sources=sources,
+        latency_seconds=round(external_analysis.latency_seconds, 3),
+        cache_hit=external_analysis.cache_hit,
     )

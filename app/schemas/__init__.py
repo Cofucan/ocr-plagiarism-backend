@@ -1,3 +1,21 @@
-from .analysis import AnalysisRequest, AnalysisResponse, MatchResult
+from .analysis import (
+    AnalysisRequest,
+    AnalysisResponse,
+    AnalysisStats,
+    ChunkMatch,
+    ExternalAnalysisResponse,
+    ExternalSourceResult,
+    MatchResult,
+    TextCorrection,
+)
 
-__all__ = ["AnalysisRequest", "AnalysisResponse", "MatchResult"]
+__all__ = [
+    "AnalysisRequest",
+    "AnalysisResponse",
+    "AnalysisStats",
+    "ChunkMatch",
+    "ExternalAnalysisResponse",
+    "ExternalSourceResult",
+    "MatchResult",
+    "TextCorrection",
+]

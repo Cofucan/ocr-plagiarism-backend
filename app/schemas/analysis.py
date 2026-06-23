@@ -152,15 +152,27 @@ class ExternalSourceResult(BaseModel):
     authors: list[str] = Field(default_factory=list)
     year: int | None = None
     abstract_snippet: str | None = None
-    score: float | None = Field(default=None, ge=0.0, le=1.0)
+    score: float | None = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="Deprecated alias for crossref_relevance_score.",
+    )
+    crossref_raw_score: float | None = None
+    crossref_relevance_score: float | None = Field(default=None, ge=0.0, le=1.0)
+    text_similarity_score: float | None = Field(default=None, ge=0.0, le=1.0)
+    external_risk_score: float = Field(default=0.0, ge=0.0, le=1.0)
     url: str | None = None
     publisher: str | None = None
     plagiarism_score: float | None = Field(
         default=None,
         ge=0.0,
         le=1.0,
-        description="N-gram plagiarism score (0=no match, 1=plagiarism). Higher indicates more plagiarism.",
+        description="Deprecated alias for text_similarity_score.",
     )
+    matched_phrases: list[str] = Field(default_factory=list)
+    source_quality: dict[str, bool | float] = Field(default_factory=dict)
+    similarity_basis: str | None = None
 
 
 class ExternalAnalysisResponse(BaseModel):
@@ -170,6 +182,8 @@ class ExternalAnalysisResponse(BaseModel):
 
     student_id: str
     query_keywords: list[str] = Field(default_factory=list)
+    query: str
+    query_strategies: list[str] = Field(default_factory=list)
     result_count: int = Field(..., ge=0)
     sources: list[ExternalSourceResult] = Field(default_factory=list)
     latency_seconds: float = Field(
@@ -177,3 +191,4 @@ class ExternalAnalysisResponse(BaseModel):
         ge=0.0,
         description="Time taken to fetch external results (for educational reporting)",
     )
+    cache_hit: bool = False

@@ -3,6 +3,8 @@ from .analysis import (
     AnalysisResponse,
     AnalysisStats,
     ChunkMatch,
+    ExternalAnalysisResponse,
+    ExternalSourceResult,
     MatchResult,
     TextCorrection,
 )
@@ -12,6 +14,8 @@ __all__ = [
     "AnalysisResponse",
     "AnalysisStats",
     "ChunkMatch",
+    "ExternalAnalysisResponse",
+    "ExternalSourceResult",
     "MatchResult",
     "TextCorrection",
 ]

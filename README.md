@@ -65,3 +65,26 @@ The server must listen on `0.0.0.0` to be accessible from the Windows host/Andro
 
 The score is a repository similarity signal, not proof of intent. `No Significant Match Found`
 means the text did not strongly match this app's current reference documents.
+
+### Endpoint: POST /api/analyze/external
+
+Queries Crossref for related academic works using extracted keywords and keyphrases.
+This endpoint is an external-source discovery aid, not a definitive plagiarism verdict.
+
+**Additional response fields:**
+
+* `query`: The exact query text sent to Crossref.
+* `query_keywords`: Cleaned keywords extracted from the submitted text.
+* `query_strategies`: Crossref query modes used, such as `query.bibliographic` and `query.title`.
+* `cache_hit`: Whether the response came from the in-memory Crossref cache.
+* `sources[].crossref_relevance_score`: Normalized Crossref search relevance.
+* `sources[].text_similarity_score`: Local similarity between submitted text and the returned title/abstract metadata.
+* `sources[].external_risk_score`: Combined score from text similarity, Crossref relevance, and source quality.
+* `sources[].matched_phrases`: Shared phrases found in the submitted text and source metadata.
+* `sources[].source_quality`: Metadata completeness flags such as DOI, abstract, URL, year, and publisher.
+* `sources[].similarity_basis`: Whether similarity used `title_and_abstract` or `title_only`.
+
+Deprecated aliases are still returned for compatibility:
+
+* `sources[].score` mirrors `crossref_relevance_score`.
+* `sources[].plagiarism_score` mirrors `text_similarity_score`.

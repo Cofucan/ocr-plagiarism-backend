@@ -1,81 +1,95 @@
 """
-Test script for the Crossref external analysis endpoint.
-Demonstrates two-phase plagiarism detection: local + external sources.
+Tests for the Crossref external analysis client.
 """
 
-import asyncio
-import json
-from app.services.crossref import fetch_crossref_matches
+import pytest
+
+pytest.importorskip("httpx")
+
+from app.services import crossref
 
 
-async def test_crossref():
-    """Test the Crossref API integration with sample text."""
+class FakeResponse:
+    def __init__(self, payload):
+        self._payload = payload
+        self.status_code = 200
 
-    # Sample academic text about machine learning
-    sample_text = """
-    Machine learning is a subset of artificial intelligence that enables
-    systems to learn and improve from experience without being explicitly
-    programmed. Deep learning neural networks have revolutionized computer
-    vision and natural language processing. Convolutional neural networks
-    are particularly effective for image recognition tasks. The backpropagation
-    algorithm is fundamental to training deep neural networks by computing
-    gradients efficiently.
-    """
+    def raise_for_status(self):
+        return None
 
-    print("=" * 70)
-    print("Testing Crossref Integration")
-    print("=" * 70)
-    print(f"\nInput text ({len(sample_text)} chars):")
-    print(sample_text.strip())
-    print("\n" + "-" * 70)
-
-    try:
-        keywords, results, latency = await fetch_crossref_matches(sample_text)
-
-        print(f"\nExtracted Keywords ({len(keywords)}):")
-        print(", ".join(keywords))
-        print(f"\nQuery Time: {latency:.3f} seconds")
-        print(f"Results Found: {len(results)}")
-        print("\n" + "=" * 70)
-
-        for idx, result in enumerate(results, 1):
-            print(f"\nResult {idx}:")
-            print(f"  Title: {result.get('title', 'N/A')}")
-            print(f"  DOI: {result.get('doi', 'N/A')}")
-            print(f"  Year: {result.get('year', 'N/A')}")
-            print(f"  Authors: {', '.join(result.get('authors', [])[:3])}")
-            print(f"  Publisher: {result.get('publisher', 'N/A')}")
-            print(f"  Score: {result.get('score', 'N/A')}")
-
-            plagiarism_score = result.get('plagiarism_score')
-            if plagiarism_score is not None:
-                print(f"  Plagiarism Score: {plagiarism_score:.4f} (n-gram match)")
-            else:
-                print("  Plagiarism Score: N/A (no abstract available)")
-
-            snippet = result.get('abstract_snippet')
-            if snippet:
-                print(f"  Abstract: {snippet[:150]}...")
-            else:
-                print("  Abstract: Not available")
-
-            print(f"  URL: {result.get('url', 'N/A')}")
-            print("-" * 70)
-
-        # Test caching by running the same query again
-        print("\n\nTesting cache (running same query again)...")
-        keywords2, results2, latency2 = await fetch_crossref_matches(sample_text)
-        print(f"Query Time (cached): {latency2:.3f} seconds")
-        print(f"Results Found: {len(results2)}")
-
-        if latency2 < latency:
-            print("✓ Cache is working! Second query was faster.")
-
-    except Exception as e:
-        print(f"\n✗ Error: {e}")
-        print("\nNote: Make sure to set a valid CROSSREF_MAILTO email in app/config.py")
-        raise
+    def json(self):
+        return self._payload
 
 
-if __name__ == "__main__":
-    asyncio.run(test_crossref())
+class FakeAsyncClient:
+    def __init__(self, *args, **kwargs):
+        self.calls = []
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, traceback):
+        return False
+
+    async def get(self, path, params):
+        self.calls.append((path, params))
+        return FakeResponse(
+            {
+                "message": {
+                    "items": [
+                        {
+                            "DOI": "10.1000/example",
+                            "title": ["Machine learning in healthcare diagnostics"],
+                            "author": [
+                                {"given": "Ada", "family": "Lovelace"},
+                            ],
+                            "issued": {"date-parts": [[2024]]},
+                            "abstract": (
+                                "<jats:p>Machine learning algorithms in healthcare "
+                                "diagnostics support early disease detection using "
+                                "patient data.</jats:p>"
+                            ),
+                            "URL": "https://doi.org/10.1000/example",
+                            "publisher": "Example Publisher",
+                            "score": 12.0,
+                        }
+                    ]
+                }
+            }
+        )
+
+
+@pytest.mark.asyncio
+async def test_fetch_crossref_matches_scores_sources_without_network(monkeypatch):
+    crossref._CACHE.clear()
+    monkeypatch.setattr(crossref.httpx, "AsyncClient", FakeAsyncClient)
+
+    result = await crossref.fetch_crossref_matches(
+        (
+            "Machine learning algorithms in healthcare diagnostics support "
+            "early disease detection using patient data."
+        )
+    )
+
+    assert result.cache_hit is False
+    assert result.query
+    assert "query.bibliographic" in result.query_strategies
+    assert "query.title" in result.query_strategies
+    assert len(result.results) == 1
+
+    source = result.results[0]
+    assert source["crossref_relevance_score"] == 1.0
+    assert source["text_similarity_score"] > 0
+    assert source["external_risk_score"] > 0
+    assert source["matched_phrases"]
+    assert source["source_quality"]["has_doi"] is True
+    assert source["source_quality"]["has_abstract"] is True
+    assert source["source_quality"]["metadata_completeness"] == 1.0
+
+    cached_result = await crossref.fetch_crossref_matches(
+        (
+            "Machine learning algorithms in healthcare diagnostics support "
+            "early disease detection using patient data."
+        )
+    )
+    assert cached_result.cache_hit is True

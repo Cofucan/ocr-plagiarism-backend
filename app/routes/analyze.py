@@ -193,7 +193,23 @@ async def analyze_external(
         )
 
     try:
-        keywords, results, latency = await fetch_crossref_matches(request.text)
+        external_analysis = await fetch_crossref_matches(request.text)
+    except httpx.TimeoutException as exc:
+        logger.exception("[ANALYZE-EXTERNAL] Crossref request timed out: %s", exc)
+        raise HTTPException(
+            status_code=504,
+            detail="Crossref request timed out. Please try again later.",
+        ) from exc
+    except httpx.HTTPStatusError as exc:
+        logger.exception("[ANALYZE-EXTERNAL] Crossref returned an error: %s", exc)
+        if exc.response.status_code == 429:
+            detail = "Crossref rate limit reached. Please try again later."
+        else:
+            detail = "Crossref service returned an error. Please try again later."
+        raise HTTPException(
+            status_code=502,
+            detail=detail,
+        ) from exc
     except httpx.HTTPError as exc:
         logger.exception("[ANALYZE-EXTERNAL] Crossref request failed: %s", exc)
         raise HTTPException(
@@ -201,14 +217,24 @@ async def analyze_external(
             detail="Crossref service unavailable. Please try again later.",
         ) from exc
 
-    sources = [ExternalSourceResult(**result) for result in results]
+    sources = [
+        ExternalSourceResult(**result)
+        for result in external_analysis.results
+    ]
 
-    logger.info(f"[ANALYZE-EXTERNAL] Returned {len(sources)} sources in {latency:.3f}s")
+    logger.info(
+        "[ANALYZE-EXTERNAL] Returned %d sources in %.3fs",
+        len(sources),
+        external_analysis.latency_seconds,
+    )
 
     return ExternalAnalysisResponse(
         student_id=request.student_id,
-        query_keywords=keywords,
+        query_keywords=external_analysis.keywords,
+        query=external_analysis.query,
+        query_strategies=external_analysis.query_strategies,
         result_count=len(sources),
         sources=sources,
-        latency_seconds=round(latency, 3),
+        latency_seconds=round(external_analysis.latency_seconds, 3),
+        cache_hit=external_analysis.cache_hit,
     )

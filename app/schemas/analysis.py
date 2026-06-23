@@ -47,6 +47,56 @@ class MatchResult(BaseModel):
     category: str
     source: str | None = None
     score: float = Field(..., ge=0.0, le=1.0)
+    tfidf_score: float = Field(0.0, ge=0.0, le=1.0)
+    fuzzy_score: float = Field(0.0, ge=0.0, le=1.0)
+    phrase_overlap_score: float = Field(0.0, ge=0.0, le=1.0)
+    raw_tfidf_score: float = Field(0.0, ge=0.0, le=1.0)
+    corrected_tfidf_score: float = Field(0.0, ge=0.0, le=1.0)
+    matched_phrases: list[str] = Field(default_factory=list)
+    suspicious_chunks: list["ChunkMatch"] = Field(default_factory=list)
+
+
+class ChunkMatch(BaseModel):
+    """
+    Evidence for one suspicious chunk in the submitted text.
+
+    Attributes:
+        input_chunk: Submitted text chunk
+        matched_chunk: Most similar reference chunk
+        score: Chunk-level fuzzy similarity score
+    """
+
+    input_chunk: str
+    matched_chunk: str
+    score: float = Field(..., ge=0.0, le=1.0)
+
+
+class TextCorrection(BaseModel):
+    """
+    OCR-style correction applied before similarity scoring.
+    """
+
+    original: str
+    corrected: str
+    confidence: float = Field(..., ge=0.0, le=100.0)
+
+
+class AnalysisStats(BaseModel):
+    """
+    Extra metadata that explains how the analysis was performed.
+    """
+
+    raw_word_count: int = Field(..., ge=0)
+    cleaned_word_count: int = Field(..., ge=0)
+    corrected_word_count: int = Field(..., ge=0)
+    documents_checked: int = Field(..., ge=0)
+    corrections_made: int = Field(..., ge=0)
+    corrections: list[TextCorrection] = Field(default_factory=list)
+    matched_chunk_count: int = Field(..., ge=0)
+    confidence_level: str
+    analysis_method: str
+    thresholds: dict[str, float]
+    score_weights: dict[str, float]
 
 
 class AnalysisResponse(BaseModel):
@@ -79,6 +129,7 @@ class AnalysisResponse(BaseModel):
         default_factory=list,
         description="Top N most similar documents",
     )
+    stats: AnalysisStats
 
 
 class HealthResponse(BaseModel):

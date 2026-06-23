@@ -34,3 +34,34 @@ The server must listen on `0.0.0.0` to be accessible from the Windows host/Andro
     "text": "The raw text content extracted from the image..."
 }
 ```
+
+**What the analysis does:**
+
+1. Cleans the submitted OCR text by lowercasing, removing punctuation/noise, tokenizing, removing stopwords, and dropping very short tokens.
+2. Applies conservative fuzzy OCR correction and records every correction made.
+3. Compares both raw-cleaned and corrected-cleaned text against a cached TF-IDF index of reference documents.
+4. Combines TF-IDF, fuzzy token similarity, and phrase-overlap scores into one final score.
+5. Adds reviewer evidence: shared phrases and suspicious sentence chunks.
+
+**Important response fields:**
+
+* `decision`: `High Probability of Plagiarism`, `Moderate Similarity Detected`, or `No Significant Match Found`.
+* `highest_score`: The best final hybrid score across all reference documents.
+* `word_count`: Cleaned word count kept for backward compatibility.
+* `top_matches[].score`: Final hybrid score for a matched document.
+* `top_matches[].tfidf_score`: TF-IDF cosine score after capping OCR correction boost.
+* `top_matches[].raw_tfidf_score`: TF-IDF score before OCR correction.
+* `top_matches[].corrected_tfidf_score`: TF-IDF score after OCR correction.
+* `top_matches[].fuzzy_score`: RapidFuzz token-set similarity.
+* `top_matches[].phrase_overlap_score`: Shared phrase overlap from 3- to 6-word phrases.
+* `top_matches[].matched_phrases`: Shared phrases shown as reviewer evidence.
+* `top_matches[].suspicious_chunks`: Submitted chunks and their closest reference chunks.
+* `stats.documents_checked`: Number of reference documents compared.
+* `stats.corrections`: OCR-style corrections applied before scoring.
+* `stats.matched_chunk_count`: Number of suspicious chunks across returned matches.
+* `stats.confidence_level`: Coarse match-strength label: `high`, `medium`, or `low`.
+* `stats.thresholds`: Thresholds used for high/moderate/chunk decisions.
+* `stats.score_weights`: Component weights used by the hybrid score.
+
+The score is a repository similarity signal, not proof of intent. `No Significant Match Found`
+means the text did not strongly match this app's current reference documents.

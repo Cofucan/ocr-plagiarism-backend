@@ -4,21 +4,41 @@ Uses RapidFuzz to correct misspelled words before similarity comparison.
 """
 
 import logging
+from dataclasses import dataclass
 from functools import lru_cache
 
 from rapidfuzz import fuzz, process
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.models import Document
 
 # Configure logging
 logger = logging.getLogger(__name__)
 
-# Minimum similarity threshold for fuzzy matching (0-100)
-FUZZY_THRESHOLD = 70
-
 # Minimum word length to attempt correction (short words have too many false matches)
 MIN_WORD_LENGTH = 4
+
+
+@dataclass
+class Correction:
+    """A single OCR-style correction made to the submitted text."""
+
+    original: str
+    corrected: str
+    confidence: float
+
+
+@dataclass
+class CorrectionResult:
+    """Corrected text plus metadata about OCR corrections."""
+
+    text: str
+    corrections: list[Correction]
+
+    @property
+    def corrections_made(self) -> int:
+        return len(self.corrections)
 
 
 @lru_cache(maxsize=1)
@@ -83,7 +103,7 @@ def correct_word(word: str, vocabulary: set[str]) -> str:
         word,
         vocabulary,
         scorer=fuzz.ratio,
-        score_cutoff=FUZZY_THRESHOLD,
+        score_cutoff=settings.FUZZY_CORRECTION_THRESHOLD,
     )
 
     if result:
@@ -94,7 +114,33 @@ def correct_word(word: str, vocabulary: set[str]) -> str:
     return word
 
 
-def correct_text(text: str, db: Session) -> str:
+def correct_word_with_score(
+    word: str,
+    vocabulary: set[str],
+) -> tuple[str, float | None]:
+    """Correct one word and return the confidence score when corrected."""
+    if not word or len(word) < MIN_WORD_LENGTH:
+        return word, None
+
+    if word in vocabulary:
+        return word, None
+
+    result = process.extractOne(
+        word,
+        vocabulary,
+        scorer=fuzz.ratio,
+        score_cutoff=settings.FUZZY_CORRECTION_THRESHOLD,
+    )
+
+    if result:
+        match, score, _ = result
+        logger.debug(f"[FUZZY] Corrected '{word}' -> '{match}' (score: {score})")
+        return match, float(score)
+
+    return word, None
+
+
+def correct_text_with_stats(text: str, db: Session) -> CorrectionResult:
     """
     Correct OCR errors in text using fuzzy matching against document vocabulary.
 
@@ -103,38 +149,49 @@ def correct_text(text: str, db: Session) -> str:
         db: Database session
 
     Returns:
-        Text with corrected words
+        Text with corrected words and correction metadata
     """
     if not text:
-        return text
+        return CorrectionResult(text=text, corrections=[])
 
     # Build vocabulary from database
     vocabulary = build_vocabulary(db)
 
     if not vocabulary:
         logger.warning("[FUZZY] Empty vocabulary, skipping correction")
-        return text
+        return CorrectionResult(text=text, corrections=[])
 
     # Tokenize and correct each word
     words = text.lower().split()
     corrected_words = []
-    corrections_made = 0
+    corrections: list[Correction] = []
 
     for word in words:
         # Preserve non-alphanumeric parts
         cleaned = ''.join(c for c in word if c.isalnum())
 
         if len(cleaned) >= MIN_WORD_LENGTH:
-            corrected = correct_word(cleaned, vocabulary)
+            corrected, confidence = correct_word_with_score(cleaned, vocabulary)
             if corrected != cleaned:
-                corrections_made += 1
+                corrections.append(
+                    Correction(
+                        original=cleaned,
+                        corrected=corrected,
+                        confidence=confidence or 0.0,
+                    )
+                )
             corrected_words.append(corrected)
         else:
             corrected_words.append(cleaned)
 
     corrected_text = ' '.join(corrected_words)
 
-    logger.info(f"[FUZZY] Made {corrections_made} corrections out of {len(words)} words")
+    logger.info(f"[FUZZY] Made {len(corrections)} corrections out of {len(words)} words")
     logger.info(f"[FUZZY] Corrected text preview: {corrected_text[:150]!r}")
 
-    return corrected_text
+    return CorrectionResult(text=corrected_text, corrections=corrections)
+
+
+def correct_text(text: str, db: Session) -> str:
+    """Backward-compatible helper that returns corrected text only."""
+    return correct_text_with_stats(text, db).text

@@ -69,7 +69,9 @@ app = FastAPI(
 
     ### Features:
     - **Text Analysis**: Compare submitted text against a repository of academic documents
-    - **Similarity Scoring**: Uses TF-IDF vectorization and Cosine Similarity
+    - **Hybrid Similarity Scoring**: Uses cached TF-IDF, fuzzy matching, and phrase overlap
+    - **Reviewer Evidence**: Returns shared phrases and suspicious text chunks
+    - **OCR Correction Stats**: Records conservative OCR-style corrections before scoring
     - **Configurable Thresholds**: Adjustable plagiarism detection sensitivity
     - **Top Matches**: Returns the most similar documents with their scores
 
@@ -77,7 +79,7 @@ app = FastAPI(
     1. Mobile app captures document image
     2. OCR extracts text from the image
     3. Text is sent to this API via POST /api/analyze
-    4. API returns similarity scores and plagiarism verdict
+    4. API returns similarity scores, evidence, analysis stats, and a plagiarism verdict
     """,
     lifespan=lifespan,
     docs_url="/docs",
